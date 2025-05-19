@@ -1,20 +1,21 @@
 import streamlit as st
 import random
+import time
 
-# Danh sách từ và cụm từ hợp lệ
-vietnamese_words = [
-    "biển", "báo", "bóng", "bay", "bánh", "bao", "cầu", "vồng", "chân", "trời", "trại", "lửa"
-]
+# Mở rộng từ điển với danh sách từ tiế vọn thực tế
+with open("vietnamese_words.txt", encoding="utf-8") as f:
+    vietnamese_words = [line.strip().lower() for line in f if line.strip()]
 
-valid_phrases = {
-    "biển báo", "bóng bay", "bánh bao", "cầu vồng", "chân trời", "trại lửa"
-}
+# Đổi từ mẫu cụm từ
+valid_phrases = set()
+for w1 in vietnamese_words:
+    for w2 in vietnamese_words:
+        valid_phrases.add(f"{w1} {w2}")
 
 st.set_page_config(page_title="🎮 Ghép Từ Có Nghĩa", layout="centered")
 st.title("🎮 Game Ghép Từ Có Nghĩa")
-st.markdown("Chọn 2 chữ cái. Bạn và máy sẽ lần lượt tạo cụm từ gồm 2 từ bắt đầu bằng 2 chữ cái đó. Ai không nghĩ ra hoặc trùng sẽ thua.")
 
-# Session state
+# Thiết lập session state
 if "used_phrases" not in st.session_state:
     st.session_state.used_phrases = set()
 if "prefix" not in st.session_state:
@@ -25,6 +26,14 @@ if "game_started" not in st.session_state:
     st.session_state.game_started = False
 if "log" not in st.session_state:
     st.session_state.log = []
+if "player_mode" not in st.session_state:
+    st.session_state.player_mode = "1P"
+if "timer" not in st.session_state:
+    st.session_state.timer = 10
+if "start_time" not in st.session_state:
+    st.session_state.start_time = None
+if "player_turn" not in st.session_state:
+    st.session_state.player_turn = True
 
 def get_valid_phrases(c1, c2):
     first = [w for w in vietnamese_words if w.startswith(c1)]
@@ -36,62 +45,77 @@ def get_valid_phrases(c1, c2):
         if f"{w1} {w2}" in valid_phrases
     }
 
-# Nhập prefix nếu chưa bắt đầu
+# Cài đặt
+with st.sidebar:
+    st.header("⚙️ Cài Đặt")
+    st.session_state.timer = st.slider("⏱️ Thời gian cho mỗi lượt (giây)", 5, 30, 10)
+    st.session_state.player_mode = st.selectbox("🔹 Chế độ", ["1P (với máy)", "2P (người với người)"])
+
+# Nhập prefix
 if not st.session_state.game_started:
     prefix_input = st.text_input("🔡 Nhập 2 chữ cái đầu (VD: 'bb')", max_chars=2)
     if st.button("Bắt đầu"):
         prefix = prefix_input.lower().strip()
         if len(prefix) == 2 and prefix.isalpha():
-            st.session_state.prefix = prefix
             c1, c2 = prefix[0], prefix[1]
             vps = get_valid_phrases(c1, c2)
             if not vps:
-                st.error("❌ Không tìm thấy cụm từ hợp lệ với 2 chữ cái này.")
+                st.error("❌ Không tìm thấy cụm từ hợp lệ.")
             else:
+                st.session_state.prefix = prefix
                 st.session_state.valid_phrases = vps
                 st.session_state.game_started = True
-                st.success(f"✅ Bắt đầu! Cụm từ phải có dạng: {c1.upper()}... {c2.upper()}...")
+                st.session_state.used_phrases = set()
+                st.session_state.log = []
+                st.session_state.player_turn = True
+                st.session_state.start_time = time.time()
+                st.success(f"✅ Bắt đầu! Cụm từ: {c1.upper()}... {c2.upper()}...")
         else:
-            st.error("Vui lòng nhập đúng 2 chữ cái.")
+            st.error("Nhập đúng 2 chữ cái.")
 else:
     c1, c2 = st.session_state.prefix[0], st.session_state.prefix[1]
-    st.info(f"🔤 Cụm từ phải bắt đầu bằng: {c1.upper()}... {c2.upper()}...")
+    st.info(f"🔤 Cụm từ phải bắt đầu: {c1.upper()}... {c2.upper()}...")
+    remaining = st.session_state.timer - int(time.time() - st.session_state.start_time)
+    st.warning(f"⏳ Thời gian còn: {remaining} giây")
 
-    user_input = st.text_input("👉 Nhập cụm từ (2 từ cách nhau bằng dấu cách):")
-    if st.button("Gửi"):
-        phrase = user_input.strip().lower()
-        if len(phrase.split()) != 2:
-            st.error("❌ Phải là 2 từ cách nhau bằng dấu cách.")
-        elif phrase in st.session_state.used_phrases:
-            st.error("❌ Từ đã dùng.")
-        elif phrase not in st.session_state.valid_phrases:
-            st.error("❌ Không phải cụm từ hợp lệ.")
-        else:
-            st.success(f"🧍 Bạn: {phrase}")
-            st.session_state.log.append(f"🧍 Bạn: {phrase}")
-            st.session_state.used_phrases.add(phrase)
-
-            # Máy phản hồi
-            remaining = list(st.session_state.valid_phrases - st.session_state.used_phrases)
-            if not remaining:
-                st.balloons()
-                st.success("🎉 Máy hết từ! Bạn thắng!")
-                st.session_state.game_started = False
+    if remaining <= 0:
+        st.error("⏱️ Hết giờ! Người chơi " + ("1" if st.session_state.player_turn else "2/Máy") + " thua.")
+        st.session_state.game_started = False
+    else:
+        user_input = st.text_input("👉 Nhập cụm từ (2 từ, cách nhau bằng dấu cách):")
+        if st.button("Gửi"):
+            phrase = user_input.strip().lower()
+            if len(phrase.split()) != 2:
+                st.error("❌ Phải là 2 từ.")
+            elif phrase in st.session_state.used_phrases:
+                st.error("❌ Từ đã dùng.")
+            elif phrase not in st.session_state.valid_phrases:
+                st.error("❌ Cụm từ không hợp lệ.")
             else:
-                bot_choice = random.choice(remaining)
-                st.session_state.used_phrases.add(bot_choice)
-                st.session_state.log.append(f"🤖 Máy: {bot_choice}")
-                st.success(f"🤖 Máy: {bot_choice}")
+                p = "Người chơi 1" if st.session_state.player_turn else ("Người chơi 2" if st.session_state.player_mode == "2P (người với người)" else "Máy")
+                st.session_state.used_phrases.add(phrase)
+                st.session_state.log.append(f"✅ {p}: {phrase}")
+                st.session_state.player_turn = not st.session_state.player_turn
+                st.session_state.start_time = time.time()
 
-    # Hiển thị lịch sử
-    st.markdown("### 📜 Lịch sử lượt chơi")
+                # Lượt của máy (nếu chơi 1P)
+                if not st.session_state.player_turn and st.session_state.player_mode.startswith("1P"):
+                    bot_choices = list(st.session_state.valid_phrases - st.session_state.used_phrases)
+                    if not bot_choices:
+                        st.balloons()
+                        st.success("🎉 Bạn thắng! Máy hết từ.")
+                        st.session_state.game_started = False
+                    else:
+                        bot_choice = random.choice(bot_choices)
+                        st.session_state.used_phrases.add(bot_choice)
+                        st.session_state.log.append(f"🤖 Máy: {bot_choice}")
+                        st.session_state.player_turn = True
+                        st.session_state.start_time = time.time()
+
+    st.markdown("### 📜 Lịch sử")
     for line in st.session_state.log:
         st.markdown(line)
 
-    # Nút chơi lại
     if st.button("🔁 Chơi lại"):
-        st.session_state.used_phrases = set()
-        st.session_state.valid_phrases = set()
-        st.session_state.game_started = False
-        st.session_state.log = []
-
+        for key in ["used_phrases", "valid_phrases", "game_started", "log", "prefix"]:
+            st.session_state[key] = set() if isinstance(st.session_state[key], set) else False
